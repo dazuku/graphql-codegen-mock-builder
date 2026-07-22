@@ -164,7 +164,9 @@ export function mockUserCard(overrides?: Partial<IUserCardFragment>): IUserCardF
 ```
 
 Notes:
-- Cross-file fragment spreads resolve only when the spread fragment's definition is among the documents passed to the plugin (near-operation-file includes a file's used fragments).
+- Cross-file fragment spreads (`#import`) are resolved via the preset's
+  `externalFragments`, and a field selected more than once (spread + direct) has its
+  sub-selections merged — so the mock matches `typescript-operations`' result type.
 - Operations get `mock<Name><Query|Mutation|Subscription>()`; fragments get `mock<Name>()`.
 
 ## Using with graphql-codegen `typescript`-plugin output (typesPrefix + real enums)

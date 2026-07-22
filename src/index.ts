@@ -12,7 +12,11 @@ export { DEFAULT_CUSTOM_SCALARS } from './generate';
 export const plugin: PluginFunction<MockBuilderPluginConfig> = (schema, documents, config) => {
   const resolved = resolveConfig(config ?? {});
   if (resolved.mode === 'operations') {
-    return generateOperationMockBuilders(schema, documents ?? [], resolved);
+    // The near-operation-file preset injects resolved cross-file fragments as
+    // `externalFragments` on the config; pass them through for spread resolution.
+    const externalFragments = (config as { externalFragments?: { node?: unknown }[] } | undefined)
+      ?.externalFragments;
+    return generateOperationMockBuilders(schema, documents ?? [], resolved, externalFragments);
   }
   return generateMockBuilders(schema, resolved);
 };

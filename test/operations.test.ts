@@ -197,3 +197,43 @@ describe('operations mode — runtime behavior', () => {
     expect(n.__typename).toBe('Notification');
   });
 });
+
+describe('operations mode — cross-file fragments and field merging', () => {
+  it('resolves a spread whose fragment is provided via externalFragments (not in documents)', () => {
+    // The operation spreads ...ActorParts, but that fragment is defined elsewhere
+    // (near-operation-file `#import`) and reaches the plugin as an externalFragment.
+    const externalFrag = parse(`fragment ActorParts on User { id fullName }`).definitions[0];
+    const doc = parse(`query GetActor { notifications { actor { ...ActorParts } } }`);
+    const output = plugin(schema, [{ document: doc }], {
+      mode: 'operations',
+      typesFile: './types',
+      typesPrefix: 'I',
+      externalFragments: [{ node: externalFrag }],
+    } as any) as string;
+    // actor's fields come from the external fragment — not an empty {__typename} object.
+    expect(output).toContain('fullName: faker.person.fullName()');
+    expect(output).not.toMatch(/actor:\s*\{\s*__typename: 'User',\s*\}/);
+  });
+
+  it('merges a field selected more than once (spread + direct)', () => {
+    // `actor` is selected via the spread AND directly with extra fields; GraphQL
+    // merges the sub-selections, so the mock must carry both id/fullName and email.
+    const externalFrag = parse(`fragment ActorParts on User { id fullName }`).definitions[0];
+    const doc = parse(`
+      query GetActor {
+        notifications {
+          actor { ...ActorParts }
+          actor { emailAddress }
+        }
+      }
+    `);
+    const output = plugin(schema, [{ document: doc }], {
+      mode: 'operations',
+      typesFile: './types',
+      typesPrefix: 'I',
+      externalFragments: [{ node: externalFrag }],
+    } as any) as string;
+    expect(output).toContain('fullName: faker.person.fullName()');
+    expect(output).toContain('emailAddress: faker.internet.email()');
+  });
+});

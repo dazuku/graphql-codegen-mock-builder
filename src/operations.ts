@@ -9,6 +9,7 @@ import {
   GraphQLSchema,
   GraphQLType,
   InlineFragmentNode,
+  Kind,
   OperationDefinitionNode,
   SelectionSetNode,
   getNamedType,
@@ -30,6 +31,14 @@ interface DocumentFileLike {
   document?: DocumentNode;
 }
 
+/**
+ * graphql-codegen's resolved external fragment (from `#import` / cross-file
+ * spreads), injected into the plugin config by the near-operation-file preset.
+ */
+interface ExternalFragmentLike {
+  node?: unknown;
+}
+
 interface OpContext extends ExprContext {
   schema: GraphQLSchema;
   /** Fragment name → definition, for resolving `...Spread`s. */
@@ -44,7 +53,8 @@ interface OpContext extends ExprContext {
 export function generateOperationMockBuilders(
   schema: GraphQLSchema,
   documents: DocumentFileLike[],
-  config: ResolvedConfig
+  config: ResolvedConfig,
+  externalFragments: ExternalFragmentLike[] = []
 ): string {
   const ctx: OpContext = {
     schema,
@@ -52,7 +62,7 @@ export function generateOperationMockBuilders(
     convertName: resolveNamingConvention(config.namingConvention),
     scalarExpressions: { ...DEFAULT_CUSTOM_SCALARS, ...config.scalars },
     usedEnums: new Set(),
-    fragments: collectFragments(documents),
+    fragments: collectFragments(documents, externalFragments),
     baseTypesNamespace: config.baseTypesNamespace ?? '',
     usedFaker: { value: false },
   };
@@ -219,7 +229,21 @@ function collectFields(
 ): Map<string, FieldNode> {
   for (const sel of selectionSet.selections) {
     if (sel.kind === 'Field') {
-      acc.set(sel.alias?.value ?? sel.name.value, sel);
+      const key = sel.alias?.value ?? sel.name.value;
+      const existing = acc.get(key);
+      // A field can be selected more than once (e.g. via a spread *and* directly);
+      // GraphQL merges their sub-selections, so combine them rather than overwrite.
+      if (existing?.selectionSet && sel.selectionSet) {
+        acc.set(key, {
+          ...sel,
+          selectionSet: {
+            kind: Kind.SELECTION_SET,
+            selections: [...existing.selectionSet.selections, ...sel.selectionSet.selections],
+          },
+        });
+      } else if (!existing) {
+        acc.set(key, sel);
+      }
     } else if (sel.kind === 'InlineFragment') {
       if (appliesTo(concrete, sel, ctx)) collectFields(concrete, sel.selectionSet, ctx, acc);
     } else if (sel.kind === 'FragmentSpread') {
@@ -287,10 +311,22 @@ function namespaceEnum(expr: string, enumType: GraphQLEnumType, ctx: OpContext):
 
 // --- document traversal ---------------------------------------------------------------------
 
-function collectFragments(documents: DocumentFileLike[]): Map<string, FragmentDefinitionNode> {
+function collectFragments(
+  documents: DocumentFileLike[],
+  externalFragments: ExternalFragmentLike[]
+): Map<string, FragmentDefinitionNode> {
   const map = new Map<string, FragmentDefinitionNode>();
   for (const def of iterateDefinitions(documents)) {
     if (def.kind === 'FragmentDefinition') map.set(def.name.value, def);
+  }
+  // Spreads may target fragments defined in other files (`#import` / cross-file);
+  // the preset resolves those into `externalFragments` so we can inline them too.
+  for (const ext of externalFragments) {
+    const node = ext.node;
+    if (node && typeof node === 'object' && (node as { kind?: unknown }).kind === 'FragmentDefinition') {
+      const frag = node as FragmentDefinitionNode;
+      map.set(frag.name.value, frag);
+    }
   }
   return map;
 }
