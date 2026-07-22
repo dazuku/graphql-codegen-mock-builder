@@ -103,6 +103,9 @@ All options are optional.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `typesFile` | `string` | — | Import path for the generated TS types (e.g. `'./types'`). When set, emits `import type { ... } from '<typesFile>'`. When unset, types must be in scope (co-generate the `typescript` plugin into the same file). |
+| `typesPrefix` | `string` | `''` | Prefix applied to every generated **type name** reference — imports, return types, `Partial<...>`, enum casts (`typesPrefix: 'I'` → `mockUser(overrides?: Partial<IUser>): IUser`). Set it to match the sibling `typescript` plugin's `typesPrefix`; the plugin cannot read the other plugin's config automatically. Factory function names are unaffected (`namePrefix`/`nameSuffix` control those). |
+| `typesSuffix` | `string` | `''` | Suffix counterpart of `typesPrefix`, matching the `typescript` plugin's `typesSuffix`. |
+| `enumStyle` | `'union' \| 'ts-enum'` | `'union'` | How enum values are emitted. `'union'` emits a string-literal cast (`'ADMIN' as Role`), which type-checks against string-union enum types (`enumsAsTypes: true`). `'ts-enum'` emits a runtime member reference (`Object.values(Role)[0]`) for consumers whose types file declares **real TS `enum`s** — a string cast fails (TS2352) against those, and the member reference works under any enum member-naming convention. Under `'ts-enum'`, enums are imported with a value import (`import { Role }`), separate from the `import type { ... }` for object/interface types. |
 | `scalars` | `Record<string, string>` | `{}` | Custom scalar name → expression emitted **verbatim** as the value. Merged over the built-in defaults (see below). |
 | `namePrefix` | `string` | `'mock'` | Factory name prefix (`mockUser`). |
 | `nameSuffix` | `string` | `''` | Factory name suffix (`mockUserFixture` with `nameSuffix: 'Fixture'`). |
@@ -111,6 +114,57 @@ All options are optional.
 | `terminateCircularRelationships` | `boolean` | `true` | Break reference cycles: circular list fields become `[]`, circular nullable fields become `null`. See [Circular types](#circular-types). |
 | `addTypename` | `boolean` | `true` | Include a `__typename: 'TypeName'` literal on object type mocks. |
 | `includeNullableFields` | `boolean` | `true` | If `true`, nullable fields are populated with mock values (more useful mocks); if `false`, they are set to `null`. |
+
+## Using with graphql-codegen `typescript`-plugin output (typesPrefix + real enums)
+
+Many codebases configure the `typescript` plugin with a type prefix and real TS enums, e.g.:
+
+```yaml
+generates:
+  src/generated/types.ts:
+    plugins:
+      - typescript
+    config:
+      typesPrefix: 'I'
+      namingConvention:
+        enumValues: keep
+      preResolveTypes: false
+      scalars:
+        ISO8601DateTime: string
+  src/generated/mocks.ts:
+    plugins:
+      - graphql-codegen-mock-builder
+    config:
+      typesFile: './types'
+      typesPrefix: 'I'        # must match the typescript plugin's typesPrefix
+      enumStyle: ts-enum      # types.ts declares real `export enum`s
+      scalars:
+        ISO8601DateTime: 'faker.date.recent().toISOString()'
+```
+
+This produces factories like:
+
+```ts
+import type { IShipment, IStop } from './types';
+import { IStatus } from './types';
+
+export function mockShipment(overrides?: Partial<IShipment>): IShipment {
+  return {
+    __typename: 'Shipment', // raw GraphQL type name — matches the `__typename?: 'Shipment'` literal
+    createdAt: faker.date.recent().toISOString(),
+    id: faker.string.uuid(),
+    status: Object.values(IStatus)[0] as IStatus,
+    ...overrides,
+  };
+}
+```
+
+Notes:
+
+- `typesPrefix`/`typesSuffix` only affect **type name** references; factory names stay `mock<TypeName>`.
+- `__typename` keeps the raw GraphQL type name, matching the optional `__typename?: 'Foo'` literal the `typescript` plugin emits.
+- Nullable-field values are assignable to `Maybe<T>` in both flavors (`T | null` and `T | null | undefined`).
+- Under `enumStyle: 'ts-enum'`, `enumsAsRandom: true` emits `faker.helpers.arrayElement(Object.values(Role))`.
 
 ## How values are chosen
 

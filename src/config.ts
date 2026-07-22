@@ -1,4 +1,11 @@
 /**
+ * How enum values are emitted.
+ * - `'union'`: string literal cast (`'VALUE' as Status`) — for string-union enum types.
+ * - `'ts-enum'`: runtime member reference (`Object.values(Status)[0]`) — for real TS `enum`s.
+ */
+export type EnumStyle = 'union' | 'ts-enum';
+
+/**
  * Configuration accepted by the mock-builder plugin. All keys are optional.
  */
 export interface MockBuilderPluginConfig {
@@ -16,6 +23,29 @@ export interface MockBuilderPluginConfig {
    * (DateTime/Date/Time/JSON/JSONObject/BigInt/UUID).
    */
   scalars?: Record<string, string>;
+
+  /**
+   * Prefix applied to every generated *type name* reference (imports, return
+   * types, `Partial<...>`, enum casts) — set it to match the sibling
+   * `typescript` plugin's `typesPrefix` (e.g. `'I'` → `IUser`). Does NOT
+   * affect factory function names. Default: `''`.
+   */
+  typesPrefix?: string;
+
+  /** Suffix counterpart of `typesPrefix`, matching the `typescript` plugin's `typesSuffix`. Default: `''`. */
+  typesSuffix?: string;
+
+  /**
+   * How enum field values are emitted. `'union'` (default) emits a string
+   * literal cast (`'VALUE' as Status`), which type-checks against string-union
+   * enum types. `'ts-enum'` emits a runtime member reference
+   * (`Object.values(Status)[0]`), required when the types file declares real
+   * TS `enum`s — string casts fail (TS2352) against those, and member
+   * references stay correct regardless of the enum's member-naming convention.
+   * Under `'ts-enum'`, enums are runtime values, so they are imported with a
+   * value import (`import { ... }`) instead of `import type`.
+   */
+  enumStyle?: EnumStyle;
 
   /** Factory name prefix. Default: `'mock'` (→ `mockUser`). */
   namePrefix?: string;
@@ -58,6 +88,9 @@ export interface ResolvedConfig extends Required<Omit<MockBuilderPluginConfig, '
 
 export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'typesFile'> = {
   scalars: {},
+  typesPrefix: '',
+  typesSuffix: '',
+  enumStyle: 'union',
   namePrefix: 'mock',
   nameSuffix: '',
   listLength: 2,

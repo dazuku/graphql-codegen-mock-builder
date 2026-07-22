@@ -215,26 +215,69 @@ describe('validate', () => {
     expect(() => validate(schema, [], { scalars: { DateTime: 5 } as never }, '', [])).toThrow(
       /scalars\.DateTime/
     );
+    expect(() => validate(schema, [], { typesPrefix: 1 as never }, '', [])).toThrow(/typesPrefix/);
+    expect(() => validate(schema, [], { enumStyle: 'enum' as never }, '', [])).toThrow(
+      /enumStyle/
+    );
+  });
+
+  it('accepts the consumer-style config', () => {
+    expect(() =>
+      validate(schema, [], { typesPrefix: 'I', typesSuffix: '', enumStyle: 'ts-enum' }, '', [])
+    ).not.toThrow();
   });
 });
 
+/** Transpiles generated output to CJS and executes it with faker (and any stubbed modules) in scope. */
+function executeGenerated(
+  output: string,
+  extraModules: Record<string, unknown> = {}
+): Record<string, any> {
+  const js = ts.transpileModule(output, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2019,
+      esModuleInterop: true,
+    },
+  }).outputText;
+  const moduleObj = { exports: {} as Record<string, any> };
+  const requireStub = (id: string) => {
+    if (id === '@faker-js/faker') return { faker };
+    if (id in extraModules) return extraModules[id];
+    throw new Error(`Unexpected require in generated code: ${id}`);
+  };
+  new Function('require', 'module', 'exports', js)(requireStub, moduleObj, moduleObj.exports);
+  return moduleObj.exports;
+}
+
+/** Runs ts.createProgram (strict) over the given files and returns flattened diagnostic messages. */
+function typeCheck(files: Record<string, string>): string[] {
+  const testDir = path.dirname(fileURLToPath(import.meta.url));
+  const tmpDir = path.join(testDir, '.tmp');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const paths = Object.entries(files).map(([name, content]) => {
+    const filePath = path.join(tmpDir, name);
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  });
+  const program = ts.createProgram(paths, {
+    strict: true,
+    noEmit: true,
+    esModuleInterop: true,
+    module: ts.ModuleKind.CommonJS,
+    moduleResolution: ts.ModuleResolutionKind.NodeJs,
+    target: ts.ScriptTarget.ES2019,
+    skipLibCheck: true,
+    types: [],
+  });
+  return ts
+    .getPreEmitDiagnostics(program)
+    .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+}
+
 describe('runtime behavior of generated factories', () => {
   function loadFactories(config: Record<string, unknown> = {}): Record<string, any> {
-    const output = generate(config);
-    const js = ts.transpileModule(output, {
-      compilerOptions: {
-        module: ts.ModuleKind.CommonJS,
-        target: ts.ScriptTarget.ES2019,
-        esModuleInterop: true,
-      },
-    }).outputText;
-    const moduleObj = { exports: {} as Record<string, any> };
-    const requireStub = (id: string) => {
-      if (id === '@faker-js/faker') return { faker };
-      throw new Error(`Unexpected require in generated code: ${id}`);
-    };
-    new Function('require', 'module', 'exports', js)(requireStub, moduleObj, moduleObj.exports);
-    return moduleObj.exports;
+    return executeGenerated(generate(config));
   }
 
   it('factories return fresh faker data on every call', () => {
@@ -343,28 +386,174 @@ export type Query = {
 `;
 
   it('the generated file type-checks against a typescript-plugin-style types file', () => {
-    const testDir = path.dirname(fileURLToPath(import.meta.url));
-    const tmpDir = path.join(testDir, '.tmp');
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const typesPath = path.join(tmpDir, 'types.ts');
-    const mocksPath = path.join(tmpDir, 'mocks.ts');
-    fs.writeFileSync(typesPath, HANDWRITTEN_TYPES);
-    fs.writeFileSync(mocksPath, generate({ typesFile: './types' }));
-
-    const program = ts.createProgram([typesPath, mocksPath], {
-      strict: true,
-      noEmit: true,
-      esModuleInterop: true,
-      module: ts.ModuleKind.CommonJS,
-      moduleResolution: ts.ModuleResolutionKind.NodeJs,
-      target: ts.ScriptTarget.ES2019,
-      skipLibCheck: true,
-      types: [],
+    const messages = typeCheck({
+      'types.ts': HANDWRITTEN_TYPES,
+      'mocks.ts': generate({ typesFile: './types' }),
     });
-    const diagnostics = ts.getPreEmitDiagnostics(program);
-    const messages = diagnostics.map((d) =>
-      ts.flattenDiagnosticMessageText(d.messageText, '\n')
-    );
     expect(messages).toEqual([]);
+  });
+});
+
+describe('consumer-style output (typesPrefix + ts-enum + preResolveTypes:false)', () => {
+  const CONSUMER_SDL = /* GraphQL */ `
+    scalar ISO8601DateTime
+
+    enum Status {
+      active
+      inactive
+      pending
+    }
+
+    type Shipment {
+      id: ID!
+      status: Status!
+      createdAt: ISO8601DateTime!
+      reference: String
+      stops: [Stop!]!
+      parent: Shipment
+    }
+
+    type Stop {
+      city: String!
+      shipment: Shipment!
+    }
+
+    type Query {
+      shipment: Shipment
+    }
+  `;
+
+  const consumerSchema = buildSchema(CONSUMER_SDL);
+
+  const CONSUMER_CONFIG = {
+    typesFile: './consumer-types',
+    typesPrefix: 'I',
+    enumStyle: 'ts-enum',
+    scalars: { ISO8601DateTime: 'faker.date.recent().toISOString()' },
+    addTypename: true,
+  };
+
+  function generateConsumer(config: Record<string, unknown> = CONSUMER_CONFIG): string {
+    return plugin(consumerSchema, [], config) as string;
+  }
+
+  // Emulates real graphql-codegen `typescript` plugin output with
+  // typesPrefix: 'I', real TS enums (namingConvention.enumValues: 'keep'),
+  // and preResolveTypes: false (optional __typename literals, Maybe includes undefined).
+  const CONSUMER_TYPES = `
+export type Maybe<T> = T | null | undefined;
+
+export enum IStatus {
+  active = 'active',
+  inactive = 'inactive',
+  pending = 'pending',
+}
+
+export type IShipment = {
+  __typename?: 'Shipment';
+  createdAt: string;
+  id: string;
+  parent?: Maybe<IShipment>;
+  reference?: Maybe<string>;
+  status: IStatus;
+  stops: Array<IStop>;
+};
+
+export type IStop = {
+  __typename?: 'Stop';
+  city: string;
+  shipment: IShipment;
+};
+
+export type IQuery = {
+  __typename?: 'Query';
+  shipment?: Maybe<IShipment>;
+};
+`;
+
+  it('prefixes type references but not factory names', () => {
+    const output = generateConsumer();
+    expect(output).toContain(
+      'export function mockShipment(overrides?: Partial<IShipment>): IShipment'
+    );
+    expect(output).toContain('export function mockStop(overrides?: Partial<IStop>): IStop');
+    expect(output).toContain('shipment: mockShipment(),');
+    expect(output).not.toContain('mockIShipment');
+  });
+
+  it('applies typesSuffix too', () => {
+    const output = generateConsumer({ typesPrefix: 'I', typesSuffix: 'Type' });
+    expect(output).toContain(
+      'export function mockShipment(overrides?: Partial<IShipmentType>): IShipmentType'
+    );
+  });
+
+  it('splits imports: type-only for types, value import for ts-enum enums', () => {
+    const output = generateConsumer();
+    expect(output).toContain(
+      "import type { IQuery, IShipment, IStop } from './consumer-types';"
+    );
+    expect(output).toContain("import { IStatus } from './consumer-types';");
+  });
+
+  it('keeps enums in the type-only import under union style', () => {
+    const output = generateConsumer({ ...CONSUMER_CONFIG, enumStyle: 'union' });
+    expect(output).toContain(
+      "import type { IQuery, IShipment, IStatus, IStop } from './consumer-types';"
+    );
+    expect(output).not.toContain("import { IStatus }");
+    expect(output).toContain('status: "active" as IStatus,');
+  });
+
+  it('emits member-name-agnostic enum references under ts-enum', () => {
+    const output = generateConsumer();
+    expect(output).toContain('status: Object.values(IStatus)[0] as IStatus,');
+    const random = generateConsumer({ ...CONSUMER_CONFIG, enumsAsRandom: true });
+    expect(random).toContain(
+      'status: faker.helpers.arrayElement(Object.values(IStatus)) as IStatus,'
+    );
+  });
+
+  it('keeps __typename as the raw GraphQL type name and handles the custom scalar', () => {
+    const output = generateConsumer();
+    expect(output).toContain("__typename: 'Shipment',");
+    expect(output).not.toContain("__typename: 'IShipment'");
+    expect(output).toContain('createdAt: faker.date.recent().toISOString(),');
+  });
+
+  it('terminates the circular Shipment ↔ Stop / parent relationships', () => {
+    const output = generateConsumer();
+    expect(output).toContain('parent: null,');
+    expect(output).toContain('stops: [],');
+    expect(output).toContain('shipment: mockShipment(),');
+  });
+
+  it('type-checks with ZERO diagnostics against real-enum consumer types', () => {
+    const messages = typeCheck({
+      'consumer-types.ts': CONSUMER_TYPES,
+      'consumer-mocks.ts': generateConsumer(),
+    });
+    expect(messages).toEqual([]);
+  });
+
+  it('resolves ts-enum references to a valid enum value at runtime, and overrides win', () => {
+    const IStatus = { active: 'active', inactive: 'inactive', pending: 'pending' };
+    const { mockShipment, mockStop } = executeGenerated(generateConsumer(), {
+      './consumer-types': { IStatus },
+    });
+    const shipment = mockShipment();
+    expect(shipment.status).toBe('active');
+    expect(Object.values(IStatus)).toContain(shipment.status);
+    expect(shipment.__typename).toBe('Shipment');
+    expect(shipment.parent).toBeNull();
+    expect(shipment.stops).toEqual([]);
+    expect(typeof shipment.createdAt).toBe('string');
+    expect(Number.isNaN(Date.parse(shipment.createdAt))).toBe(false);
+
+    const overridden = mockShipment({ status: IStatus.pending, reference: 'REF-1' });
+    expect(overridden.status).toBe('pending');
+    expect(overridden.reference).toBe('REF-1');
+
+    expect(mockStop().shipment.__typename).toBe('Shipment');
   });
 });

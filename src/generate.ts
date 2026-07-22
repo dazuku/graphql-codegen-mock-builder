@@ -80,8 +80,20 @@ export function generateMockBuilders(schema: GraphQLSchema, config: ResolvedConf
     "import { faker } from '@faker-js/faker';",
   ];
   if (config.typesFile) {
-    const imported = [...new Set([...factoryTypes.map((t) => t.name), ...ctx.usedEnums])].sort();
-    header.push(`import type { ${imported.join(', ')} } from '${config.typesFile}';`);
+    const typeNames = factoryTypes.map((t) => tsTypeName(t.name, config));
+    const enumNames = [...ctx.usedEnums].map((name) => tsTypeName(name, config));
+    // Under 'ts-enum', enum members are referenced at runtime, so enums need a
+    // value import; under 'union', everything is type-only.
+    const typeOnly =
+      config.enumStyle === 'ts-enum' ? typeNames : [...typeNames, ...enumNames];
+    header.push(
+      `import type { ${[...new Set(typeOnly)].sort().join(', ')} } from '${config.typesFile}';`
+    );
+    if (config.enumStyle === 'ts-enum' && enumNames.length > 0) {
+      header.push(
+        `import { ${[...new Set(enumNames)].sort().join(', ')} } from '${config.typesFile}';`
+      );
+    }
   }
 
   return `${header.join('\n')}\n\n${factories.join('\n\n')}\n`;
@@ -103,6 +115,11 @@ function isFactoryType(type: GraphQLNamedType): type is FactoryType {
 
 function factoryName(typeName: string, config: ResolvedConfig): string {
   return `${config.namePrefix}${typeName}${config.nameSuffix}`;
+}
+
+/** GraphQL type name → TypeScript type name, honoring the `typescript` plugin's typesPrefix/typesSuffix. */
+function tsTypeName(typeName: string, config: ResolvedConfig): string {
+  return `${config.typesPrefix}${typeName}${config.typesSuffix}`;
 }
 
 function sortedFields(type: GraphQLObjectType | GraphQLInputObjectType | GraphQLInterfaceType) {
@@ -175,12 +192,13 @@ function canReach(from: string, to: string, ctx: GeneratorContext): boolean {
 
 function generateFactory(type: FactoryType, ctx: GeneratorContext): string {
   const name = factoryName(type.name, ctx.config);
-  const signature = `export function ${name}(overrides?: Partial<${type.name}>): ${type.name}`;
+  const tsName = tsTypeName(type.name, ctx.config);
+  const signature = `export function ${name}(overrides?: Partial<${tsName}>): ${tsName}`;
 
   if (isUnionType(type)) {
     const target = delegateTarget(type, ctx.schema);
     const base = target ? `...${factoryName(target.name, ctx.config)}(),\n    ` : '';
-    return `${signature} {\n  return {\n    ${base}...overrides,\n  } as ${type.name};\n}`;
+    return `${signature} {\n  return {\n    ${base}...overrides,\n  } as ${tsName};\n}`;
   }
 
   if (isInterfaceType(type)) {
@@ -266,10 +284,21 @@ function scalarValueExpression(
 
 function enumValueExpression(enumType: GraphQLEnumType, ctx: GeneratorContext): string {
   ctx.usedEnums.add(enumType.name);
+  const tsName = tsTypeName(enumType.name, ctx.config);
+
+  if (ctx.config.enumStyle === 'ts-enum') {
+    // Real TS enums reject string-literal casts (TS2352); reference members at
+    // runtime instead — member-name-agnostic, so any enum naming convention works.
+    if (ctx.config.enumsAsRandom) {
+      return `faker.helpers.arrayElement(Object.values(${tsName})) as ${tsName}`;
+    }
+    return `Object.values(${tsName})[0] as ${tsName}`;
+  }
+
   const values = enumType.getValues().map((value) => value.name);
   if (ctx.config.enumsAsRandom) {
     const list = values.map((value) => JSON.stringify(value)).join(', ');
-    return `faker.helpers.arrayElement([${list}]) as ${enumType.name}`;
+    return `faker.helpers.arrayElement([${list}]) as ${tsName}`;
   }
-  return `${JSON.stringify(values[0])} as ${enumType.name}`;
+  return `${JSON.stringify(values[0])} as ${tsName}`;
 }

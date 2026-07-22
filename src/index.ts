@@ -2,7 +2,7 @@ import type { PluginFunction, PluginValidateFn } from '@graphql-codegen/plugin-h
 import { MockBuilderPluginConfig, resolveConfig } from './config';
 import { generateMockBuilders } from './generate';
 
-export type { MockBuilderPluginConfig } from './config';
+export type { EnumStyle, MockBuilderPluginConfig } from './config';
 export type { FieldHeuristic } from './heuristics';
 export { FIELD_HEURISTICS } from './heuristics';
 export { DEFAULT_CUSTOM_SCALARS } from './generate';
@@ -33,8 +33,14 @@ export const validate: PluginValidateFn<MockBuilderPluginConfig> = (
   };
 
   expectString('typesFile');
+  expectString('typesPrefix');
+  expectString('typesSuffix');
   expectString('namePrefix');
   expectString('nameSuffix');
+
+  if (cfg.enumStyle !== undefined && cfg.enumStyle !== 'union' && cfg.enumStyle !== 'ts-enum') {
+    errors.push(`\`enumStyle\` must be 'union' or 'ts-enum', got ${JSON.stringify(cfg.enumStyle)}`);
+  }
   expectBoolean('enumsAsRandom');
   expectBoolean('terminateCircularRelationships');
   expectBoolean('addTypename');
