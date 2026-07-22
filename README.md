@@ -1,5 +1,9 @@
 # graphql-codegen-mock-builder
 
+[![npm version](https://img.shields.io/npm/v/graphql-codegen-mock-builder.svg)](https://www.npmjs.com/package/graphql-codegen-mock-builder)
+[![CI](https://github.com/dazuku/graphql-codegen-mock-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/dazuku/graphql-codegen-mock-builder/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/graphql-codegen-mock-builder.svg)](./LICENSE)
+
 A [GraphQL Code Generator](https://the-guild.dev/graphql/codegen) plugin that generates **typed mock-builder factory functions** powered by [`@faker-js/faker`](https://fakerjs.dev/).
 
 For every object, input object, interface, and union type in your schema it emits a factory like:
