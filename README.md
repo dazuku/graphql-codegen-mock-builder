@@ -207,6 +207,36 @@ npm run build   # tsc → dist/ (.js + .d.ts)
 npm test        # vitest
 ```
 
+## Publishing
+
+Releases are published to npm automatically by GitHub Actions
+([`.github/workflows/publish.yml`](.github/workflows/publish.yml)) whenever a
+GitHub Release is published. The workflow builds, tests, and runs
+`npm publish` with [provenance](https://docs.npmjs.com/generating-provenance-statements).
+
+**One-time setup:** add an npm automation token as the `NPM_TOKEN` repo secret:
+
+```sh
+# create a "Automation" token at https://www.npmjs.com/settings/<user>/tokens
+gh secret set NPM_TOKEN --repo dazuku/graphql-codegen-mock-builder
+```
+
+**Cutting a release:**
+
+```sh
+npm version patch          # bumps package.json + creates a git tag
+git push --follow-tags
+gh release create v0.1.1 --generate-notes   # triggers the publish workflow
+```
+
+To publish manually from your machine instead:
+
+```sh
+npm login
+npm publish                # prepublishOnly runs the build; publishConfig sets public access
+```
+
 ## License
 
 MIT
+

@@ -5,8 +5,23 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
+  "author": "Daniel Camilo Daza Díaz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dazuku/graphql-codegen-mock-builder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dazuku/graphql-codegen-mock-builder/issues"
+  },
+  "homepage": "https://github.com/dazuku/graphql-codegen-mock-builder#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
