@@ -21,6 +21,7 @@ import {
 } from 'graphql';
 import { ResolvedConfig } from './config';
 import { findHeuristicExpression, ScalarCategory } from './heuristics';
+import { NamingFn, resolveNamingConvention } from './naming';
 
 /** Type-based fallbacks for the built-in scalars (used when no heuristic matches). */
 export const BUILTIN_SCALAR_FALLBACKS: Record<string, string> = {
@@ -54,6 +55,8 @@ type FactoryType =
 interface GeneratorContext {
   schema: GraphQLSchema;
   config: ResolvedConfig;
+  /** GraphQL name → TS identifier conversion (mirrors the `typescript` plugin's namingConvention). */
+  convertName: NamingFn;
   scalarExpressions: Record<string, string>;
   /** Emitted-call-graph adjacency: factory type name → factory type names it calls. */
   adjacency: Map<string, Set<string>>;
@@ -66,6 +69,7 @@ export function generateMockBuilders(schema: GraphQLSchema, config: ResolvedConf
   const ctx: GeneratorContext = {
     schema,
     config,
+    convertName: resolveNamingConvention(config.namingConvention),
     scalarExpressions: { ...DEFAULT_CUSTOM_SCALARS, ...config.scalars },
     adjacency: buildAdjacency(schema, factoryTypes),
     reachabilityCache: new Map(),
@@ -80,8 +84,8 @@ export function generateMockBuilders(schema: GraphQLSchema, config: ResolvedConf
     "import { faker } from '@faker-js/faker';",
   ];
   if (config.typesFile) {
-    const typeNames = factoryTypes.map((t) => tsTypeName(t.name, config));
-    const enumNames = [...ctx.usedEnums].map((name) => tsTypeName(name, config));
+    const typeNames = factoryTypes.map((t) => tsTypeName(t.name, ctx));
+    const enumNames = [...ctx.usedEnums].map((name) => tsTypeName(name, ctx));
     // Under 'ts-enum', enum members are referenced at runtime, so enums need a
     // value import; under 'union', everything is type-only.
     const typeOnly =
@@ -113,13 +117,18 @@ function isFactoryType(type: GraphQLNamedType): type is FactoryType {
   );
 }
 
-function factoryName(typeName: string, config: ResolvedConfig): string {
-  return `${config.namePrefix}${typeName}${config.nameSuffix}`;
+type NameContext = Pick<GeneratorContext, 'config' | 'convertName'>;
+
+function factoryName(typeName: string, ctx: NameContext): string {
+  return `${ctx.config.namePrefix}${ctx.convertName(typeName)}${ctx.config.nameSuffix}`;
 }
 
-/** GraphQL type name → TypeScript type name, honoring the `typescript` plugin's typesPrefix/typesSuffix. */
-function tsTypeName(typeName: string, config: ResolvedConfig): string {
-  return `${config.typesPrefix}${typeName}${config.typesSuffix}`;
+/**
+ * GraphQL type name → TypeScript type name: naming convention first, then the
+ * `typescript` plugin's typesPrefix/typesSuffix around the converted name.
+ */
+function tsTypeName(typeName: string, ctx: NameContext): string {
+  return `${ctx.config.typesPrefix}${ctx.convertName(typeName)}${ctx.config.typesSuffix}`;
 }
 
 function sortedFields(type: GraphQLObjectType | GraphQLInputObjectType | GraphQLInterfaceType) {
@@ -191,23 +200,34 @@ function canReach(from: string, to: string, ctx: GeneratorContext): boolean {
 // --- Factory emission -----------------------------------------------------------------------
 
 function generateFactory(type: FactoryType, ctx: GeneratorContext): string {
-  const name = factoryName(type.name, ctx.config);
-  const tsName = tsTypeName(type.name, ctx.config);
+  const name = factoryName(type.name, ctx);
+  const tsName = tsTypeName(type.name, ctx);
   const signature = `export function ${name}(overrides?: Partial<${tsName}>): ${tsName}`;
 
   if (isUnionType(type)) {
     const target = delegateTarget(type, ctx.schema);
-    const base = target ? `...${factoryName(target.name, ctx.config)}(),\n    ` : '';
+    const base = target ? `...${factoryName(target.name, ctx)}(),\n    ` : '';
     return `${signature} {\n  return {\n    ${base}...overrides,\n  } as ${tsName};\n}`;
   }
 
   if (isInterfaceType(type)) {
     const target = delegateTarget(type, ctx.schema);
     if (target) {
-      return `${signature} {\n  return {\n    ...${factoryName(target.name, ctx.config)}(),\n    ...overrides,\n  };\n}`;
+      return `${signature} {\n  return {\n    ...${factoryName(target.name, ctx)}(),\n    ...overrides,\n  };\n}`;
     }
     // Interface with no implementations: build its own fields (no __typename —
     // __typename must name a concrete object type).
+  }
+
+  // @oneOf input objects are typed as a discriminated union requiring exactly
+  // one field set — emit only the first field, always with a value (null would
+  // violate the one-of contract). `isOneOf` is undefined on graphql < 16.8.
+  if (isInputObjectType(type) && (type as { isOneOf?: boolean }).isOneOf === true) {
+    const field = sortedFields(type)[0];
+    if (field) {
+      const value = typeValueExpression(field.type, field.name, ctx);
+      return `${signature} {\n  return {\n    ${field.name}: ${value},\n    ...overrides,\n  } as ${tsName};\n}`;
+    }
   }
 
   const lines: string[] = [];
@@ -262,7 +282,7 @@ function typeValueExpression(type: GraphQLType, fieldName: string, ctx: Generato
   if (isScalarType(type)) return scalarValueExpression(type, fieldName, ctx);
   if (isEnumType(type)) return enumValueExpression(type, ctx);
   // Object, input object, interface, or union: call its factory.
-  return `${factoryName(type.name, ctx.config)}()`;
+  return `${factoryName(type.name, ctx)}()`;
 }
 
 function scalarValueExpression(
@@ -284,7 +304,7 @@ function scalarValueExpression(
 
 function enumValueExpression(enumType: GraphQLEnumType, ctx: GeneratorContext): string {
   ctx.usedEnums.add(enumType.name);
-  const tsName = tsTypeName(enumType.name, ctx.config);
+  const tsName = tsTypeName(enumType.name, ctx);
 
   if (ctx.config.enumStyle === 'ts-enum') {
     // Real TS enums reject string-literal casts (TS2352); reference members at

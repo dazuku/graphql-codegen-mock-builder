@@ -1,6 +1,6 @@
 {
   "name": "graphql-codegen-mock-builder",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "GraphQL Code Generator plugin that emits typed mock-builder factory functions powered by @faker-js/faker",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -40,6 +40,9 @@
   "license": "MIT",
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "change-case-all": "^2.1.0"
   },
   "peerDependencies": {
     "graphql": "^16.0.0 || ^17.0.0"

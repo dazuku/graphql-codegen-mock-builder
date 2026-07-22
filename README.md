@@ -103,7 +103,8 @@ All options are optional.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `typesFile` | `string` | — | Import path for the generated TS types (e.g. `'./types'`). When set, emits `import type { ... } from '<typesFile>'`. When unset, types must be in scope (co-generate the `typescript` plugin into the same file). |
-| `typesPrefix` | `string` | `''` | Prefix applied to every generated **type name** reference — imports, return types, `Partial<...>`, enum casts (`typesPrefix: 'I'` → `mockUser(overrides?: Partial<IUser>): IUser`). Set it to match the sibling `typescript` plugin's `typesPrefix`; the plugin cannot read the other plugin's config automatically. Factory function names are unaffected (`namePrefix`/`nameSuffix` control those). |
+| `namingConvention` | `string` | `'change-case-all#pascalCase'` | Naming convention applied to TypeScript **type-name identifiers** (and the type-name part of factory names), mirroring the `typescript` plugin's `namingConvention` for type names. The default matches graphql-codegen's own default, which lowercases acronym runs — schema type `BTFActualsCredentials` becomes `BtfActualsCredentials` (so `mockBtfActualsCredentials`, importing `IBtfActualsCredentials` with `typesPrefix: 'I'`). Set `'keep'` if your codegen config keeps raw names. Accepts `'keep'`, `'change-case-all#<fn>'`, or a bare/kebab-case function name (`'pascalCase'`, `'pascal-case'`). Uses the actual `change-case-all` library, so acronym handling matches codegen exactly. The `__typename` literal always stays the **raw** GraphQL type name. |
+| `typesPrefix` | `string` | `''` | Prefix applied to every generated **type name** reference — imports, return types, `Partial<...>`, enum casts (`typesPrefix: 'I'` → `mockUser(overrides?: Partial<IUser>): IUser`). Applied **after** the `namingConvention` conversion (`prefix + convert(name) + suffix`). Set it to match the sibling `typescript` plugin's `typesPrefix`; the plugin cannot read the other plugin's config automatically. Factory function names are unaffected (`namePrefix`/`nameSuffix` control those). |
 | `typesSuffix` | `string` | `''` | Suffix counterpart of `typesPrefix`, matching the `typescript` plugin's `typesSuffix`. |
 | `enumStyle` | `'union' \| 'ts-enum'` | `'union'` | How enum values are emitted. `'union'` emits a string-literal cast (`'ADMIN' as Role`), which type-checks against string-union enum types (`enumsAsTypes: true`). `'ts-enum'` emits a runtime member reference (`Object.values(Role)[0]`) for consumers whose types file declares **real TS `enum`s** — a string cast fails (TS2352) against those, and the member reference works under any enum member-naming convention. Under `'ts-enum'`, enums are imported with a value import (`import { Role }`), separate from the `import type { ... }` for object/interface types. |
 | `scalars` | `Record<string, string>` | `{}` | Custom scalar name → expression emitted **verbatim** as the value. Merged over the built-in defaults (see below). |
@@ -161,7 +162,8 @@ export function mockShipment(overrides?: Partial<IShipment>): IShipment {
 
 Notes:
 
-- `typesPrefix`/`typesSuffix` only affect **type name** references; factory names stay `mock<TypeName>`.
+- `typesPrefix`/`typesSuffix` only affect **type name** references; factory names stay `mock<ConvertedTypeName>`.
+- Type-name identifiers follow `namingConvention` (default `change-case-all#pascalCase`, matching codegen's default): schema type `BTFActualsCredentials` yields `mockBtfActualsCredentials(overrides?: Partial<IBtfActualsCredentials>)` while `__typename` stays `'BTFActualsCredentials'`.
 - `__typename` keeps the raw GraphQL type name, matching the optional `__typename?: 'Foo'` literal the `typescript` plugin emits.
 - Nullable-field values are assignable to `Maybe<T>` in both flavors (`T | null` and `T | null | undefined`).
 - Under `enumStyle: 'ts-enum'`, `enumsAsRandom: true` emits `faker.helpers.arrayElement(Object.values(Role))`.
@@ -238,7 +240,7 @@ Custom scalars with no built-in or configured mapping fall back to `faker.lorem.
 ## Type coverage
 
 - **Object types**: full factory with `__typename` (configurable) and every field populated.
-- **Input object types**: factory without `__typename`.
+- **Input object types**: factory without `__typename`. **`@oneOf` input types get exactly one field** (the first, alphabetically — deterministic), since their generated TS type is a discriminated union requiring exactly one field set; override with a different single field if needed.
 - **Interface types**: factory that delegates to the first (alphabetical) implementing type's factory.
 - **Union types**: factory that delegates to the first (alphabetical) member's factory.
 - **Enums**: first value deterministically (or random with `enumsAsRandom`).

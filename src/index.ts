@@ -1,6 +1,7 @@
 import type { PluginFunction, PluginValidateFn } from '@graphql-codegen/plugin-helpers';
 import { MockBuilderPluginConfig, resolveConfig } from './config';
 import { generateMockBuilders } from './generate';
+import { resolveNamingConvention } from './naming';
 
 export type { EnumStyle, MockBuilderPluginConfig } from './config';
 export type { FieldHeuristic } from './heuristics';
@@ -33,6 +34,14 @@ export const validate: PluginValidateFn<MockBuilderPluginConfig> = (
   };
 
   expectString('typesFile');
+  expectString('namingConvention');
+  if (typeof cfg.namingConvention === 'string') {
+    try {
+      resolveNamingConvention(cfg.namingConvention);
+    } catch (error) {
+      errors.push((error as Error).message);
+    }
+  }
   expectString('typesPrefix');
   expectString('typesSuffix');
   expectString('namePrefix');

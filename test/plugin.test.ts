@@ -219,6 +219,12 @@ describe('validate', () => {
     expect(() => validate(schema, [], { enumStyle: 'enum' as never }, '', [])).toThrow(
       /enumStyle/
     );
+    expect(() => validate(schema, [], { namingConvention: 'change-case-all#nope' }, '', [])).toThrow(
+      /namingConvention/
+    );
+    expect(() =>
+      validate(schema, [], { namingConvention: 'lodash#camelCase' }, '', [])
+    ).toThrow(/namingConvention/);
   });
 
   it('accepts the consumer-style config', () => {
@@ -555,5 +561,165 @@ export type IQuery = {
     expect(overridden.reference).toBe('REF-1');
 
     expect(mockStop().shipment.__typename).toBe('Shipment');
+  });
+});
+
+describe('type-name naming convention + @oneOf inputs', () => {
+  const NAMING_SDL = /* GraphQL */ `
+    enum DataImportEntityStatusRMSBulkUploadLanes {
+      pending
+      complete
+    }
+
+    type BTFActualsCredentials {
+      id: ID!
+      username: String!
+    }
+
+    input DataImportEntityParamsRFPLanesInput {
+      fileName: String!
+    }
+
+    input ConnectBTFActualsCredentialsInput {
+      params: DataImportEntityParamsRFPLanesInput
+      username: String!
+    }
+
+    type RMSBulkUpload {
+      id: ID!
+      status: DataImportEntityStatusRMSBulkUploadLanes!
+      credentials: BTFActualsCredentials
+    }
+
+    input AInput {
+      value: String!
+    }
+
+    input BInput {
+      count: Int!
+    }
+
+    input FilterInput @oneOf {
+      byName: AInput
+      byCount: BInput
+    }
+
+    type Query {
+      upload: RMSBulkUpload
+    }
+  `;
+
+  const namingSchema = buildSchema(NAMING_SDL);
+
+  function generateNaming(config: Record<string, unknown> = {}): string {
+    return plugin(namingSchema, [], config) as string;
+  }
+
+  it('pascalCases acronym type names by default (imports, signatures, nested refs, factory names)', () => {
+    const output = generateNaming({ typesFile: './naming-types', typesPrefix: 'I' });
+    expect(output).toContain(
+      "import type { IAInput, IBInput, IBtfActualsCredentials, IConnectBtfActualsCredentialsInput, IDataImportEntityParamsRfpLanesInput, IDataImportEntityStatusRmsBulkUploadLanes, IFilterInput, IQuery, IRmsBulkUpload } from './naming-types';"
+    );
+    expect(output).toContain(
+      'export function mockBtfActualsCredentials(overrides?: Partial<IBtfActualsCredentials>): IBtfActualsCredentials'
+    );
+    expect(output).toContain(
+      'export function mockConnectBtfActualsCredentialsInput(overrides?: Partial<IConnectBtfActualsCredentialsInput>): IConnectBtfActualsCredentialsInput'
+    );
+    expect(output).toContain('credentials: mockBtfActualsCredentials(),');
+    expect(output).toContain('params: mockDataImportEntityParamsRfpLanesInput(),');
+    expect(output).toContain(
+      'status: "pending" as IDataImportEntityStatusRmsBulkUploadLanes,'
+    );
+    // Raw acronym forms must not leak into TS identifiers.
+    expect(output).not.toContain('IBTFActualsCredentials');
+    expect(output).not.toContain('mockBTFActualsCredentials');
+    expect(output).not.toContain('RFPLanes');
+  });
+
+  it('keeps __typename as the RAW GraphQL type name', () => {
+    const output = generateNaming({ typesPrefix: 'I' });
+    expect(output).toContain("__typename: 'BTFActualsCredentials',");
+    expect(output).toContain("__typename: 'RMSBulkUpload',");
+    expect(output).not.toContain("__typename: 'BtfActualsCredentials'");
+  });
+
+  it("namingConvention: 'keep' preserves raw names", () => {
+    const output = generateNaming({ typesPrefix: 'I', namingConvention: 'keep' });
+    expect(output).toContain(
+      'export function mockBTFActualsCredentials(overrides?: Partial<IBTFActualsCredentials>): IBTFActualsCredentials'
+    );
+  });
+
+  it('accepts pascalCase aliases', () => {
+    for (const namingConvention of ['pascal-case', 'pascalCase', 'change-case-all#pascalCase']) {
+      const output = generateNaming({ namingConvention });
+      expect(output).toContain('export function mockBtfActualsCredentials');
+    }
+  });
+
+  it('emits exactly one field for @oneOf inputs', () => {
+    const output = generateNaming({ typesPrefix: 'I' });
+    const factory = output.match(/export function mockFilterInput[\s\S]*?\n\}/)?.[0] ?? '';
+    expect(factory).toContain('byCount: mockBInput(),');
+    expect(factory).not.toContain('byName');
+    expect(factory).toContain('as IFilterInput;');
+  });
+
+  it('@oneOf mocks have exactly one key at runtime and overrides win', () => {
+    const { mockFilterInput } = executeGenerated(generateNaming());
+    const filter = mockFilterInput();
+    expect(Object.keys(filter)).toEqual(['byCount']);
+    expect(typeof filter.byCount.count).toBe('number');
+    const overridden = mockFilterInput({ byName: { value: 'x' }, byCount: undefined });
+    expect(overridden.byName).toEqual({ value: 'x' });
+  });
+
+  const NAMING_TYPES = `
+export type Maybe<T> = T | null;
+
+export type IDataImportEntityStatusRmsBulkUploadLanes = 'pending' | 'complete';
+
+export type IBtfActualsCredentials = {
+  __typename?: 'BTFActualsCredentials';
+  id: string;
+  username: string;
+};
+
+export type IDataImportEntityParamsRfpLanesInput = {
+  fileName: string;
+};
+
+export type IConnectBtfActualsCredentialsInput = {
+  params?: Maybe<IDataImportEntityParamsRfpLanesInput>;
+  username: string;
+};
+
+export type IRmsBulkUpload = {
+  __typename?: 'RMSBulkUpload';
+  credentials?: Maybe<IBtfActualsCredentials>;
+  id: string;
+  status: IDataImportEntityStatusRmsBulkUploadLanes;
+};
+
+export type IAInput = { value: string };
+export type IBInput = { count: number };
+
+export type IFilterInput =
+  | { byCount: IBInput; byName?: never }
+  | { byCount?: never; byName: IAInput };
+
+export type IQuery = {
+  __typename?: 'Query';
+  upload?: Maybe<IRmsBulkUpload>;
+};
+`;
+
+  it('acronym + oneOf output type-checks with ZERO diagnostics', () => {
+    const messages = typeCheck({
+      'naming-types.ts': NAMING_TYPES,
+      'naming-mocks.ts': generateNaming({ typesFile: './naming-types', typesPrefix: 'I' }),
+    });
+    expect(messages).toEqual([]);
   });
 });

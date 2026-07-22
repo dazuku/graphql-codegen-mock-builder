@@ -25,6 +25,19 @@ export interface MockBuilderPluginConfig {
   scalars?: Record<string, string>;
 
   /**
+   * Naming convention applied to TypeScript type-name identifiers (and the
+   * type-name part of factory names), mirroring the `typescript` plugin's
+   * `namingConvention` for type names. Default:
+   * `'change-case-all#pascalCase'` — graphql-codegen's own default — which
+   * lowercases acronym runs (`BTFActualsCredentials` → `BtfActualsCredentials`).
+   * Accepts `'keep'`, `'change-case-all#<fn>'`, or a bare/kebab-case function
+   * name (`'pascalCase'`, `'pascal-case'`). The `__typename` literal always
+   * stays the raw GraphQL type name. `typesPrefix`/`typesSuffix` are applied
+   * AFTER conversion.
+   */
+  namingConvention?: string;
+
+  /**
    * Prefix applied to every generated *type name* reference (imports, return
    * types, `Partial<...>`, enum casts) — set it to match the sibling
    * `typescript` plugin's `typesPrefix` (e.g. `'I'` → `IUser`). Does NOT
@@ -88,6 +101,7 @@ export interface ResolvedConfig extends Required<Omit<MockBuilderPluginConfig, '
 
 export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'typesFile'> = {
   scalars: {},
+  namingConvention: 'change-case-all#pascalCase',
   typesPrefix: '',
   typesSuffix: '',
   enumStyle: 'union',
