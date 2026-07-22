@@ -52,16 +52,23 @@ type FactoryType =
   | GraphQLInterfaceType
   | GraphQLUnionType;
 
-interface GeneratorContext {
-  schema: GraphQLSchema;
+/**
+ * The context shared by schema mode and operations mode: everything needed to
+ * turn a field's GraphQL type into a value expression.
+ */
+export interface ExprContext {
   config: ResolvedConfig;
   /** GraphQL name → TS identifier conversion (mirrors the `typescript` plugin's namingConvention). */
   convertName: NamingFn;
   scalarExpressions: Record<string, string>;
+  usedEnums: Set<string>;
+}
+
+interface GeneratorContext extends ExprContext {
+  schema: GraphQLSchema;
   /** Emitted-call-graph adjacency: factory type name → factory type names it calls. */
   adjacency: Map<string, Set<string>>;
   reachabilityCache: Map<string, boolean>;
-  usedEnums: Set<string>;
 }
 
 export function generateMockBuilders(schema: GraphQLSchema, config: ResolvedConfig): string {
@@ -117,9 +124,9 @@ function isFactoryType(type: GraphQLNamedType): type is FactoryType {
   );
 }
 
-type NameContext = Pick<GeneratorContext, 'config' | 'convertName'>;
+export type NameContext = Pick<ExprContext, 'config' | 'convertName'>;
 
-function factoryName(typeName: string, ctx: NameContext): string {
+export function factoryName(typeName: string, ctx: NameContext): string {
   return `${ctx.config.namePrefix}${ctx.convertName(typeName)}${ctx.config.nameSuffix}`;
 }
 
@@ -127,7 +134,7 @@ function factoryName(typeName: string, ctx: NameContext): string {
  * GraphQL type name → TypeScript type name: naming convention first, then the
  * `typescript` plugin's typesPrefix/typesSuffix around the converted name.
  */
-function tsTypeName(typeName: string, ctx: NameContext): string {
+export function tsTypeName(typeName: string, ctx: NameContext): string {
   return `${ctx.config.typesPrefix}${ctx.convertName(typeName)}${ctx.config.typesSuffix}`;
 }
 
@@ -285,10 +292,10 @@ function typeValueExpression(type: GraphQLType, fieldName: string, ctx: Generato
   return `${factoryName(type.name, ctx)}()`;
 }
 
-function scalarValueExpression(
+export function scalarValueExpression(
   scalar: GraphQLScalarType,
   fieldName: string,
-  ctx: GeneratorContext
+  ctx: ExprContext
 ): string {
   if (isSpecifiedScalarType(scalar)) {
     if (scalar.name !== 'Boolean') {
@@ -302,7 +309,7 @@ function scalarValueExpression(
   return ctx.scalarExpressions[scalar.name] ?? UNKNOWN_SCALAR_FALLBACK;
 }
 
-function enumValueExpression(enumType: GraphQLEnumType, ctx: GeneratorContext): string {
+export function enumValueExpression(enumType: GraphQLEnumType, ctx: ExprContext): string {
   ctx.usedEnums.add(enumType.name);
   const tsName = tsTypeName(enumType.name, ctx);
 

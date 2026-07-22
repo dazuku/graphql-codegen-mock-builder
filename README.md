@@ -103,7 +103,8 @@ All options are optional.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `typesFile` | `string` | — | Import path for the generated TS types (e.g. `'./types'`). When set, emits `import type { ... } from '<typesFile>'`. When unset, types must be in scope (co-generate the `typescript` plugin into the same file). |
-| `namingConvention` | `string` | `'change-case-all#pascalCase'` | Naming convention applied to TypeScript **type-name identifiers** (and the type-name part of factory names), mirroring the `typescript` plugin's `namingConvention` for type names. The default matches graphql-codegen's own default, which lowercases acronym runs — schema type `BTFActualsCredentials` becomes `BtfActualsCredentials` (so `mockBtfActualsCredentials`, importing `IBtfActualsCredentials` with `typesPrefix: 'I'`). Set `'keep'` if your codegen config keeps raw names. Accepts `'keep'`, `'change-case-all#<fn>'`, or a bare/kebab-case function name (`'pascalCase'`, `'pascal-case'`). Uses the actual `change-case-all` library, so acronym handling matches codegen exactly. The `__typename` literal always stays the **raw** GraphQL type name. |
+| `mode` | `'schema' \| 'operations'` | `'schema'` | `'schema'` emits a factory per schema type. `'operations'` emits a factory per **fragment and operation** in the documents, typed to the near-operation-file result types and built by walking the selection set. See [Operations mode](#operations-mode). |
+| `namingConvention` | `string \| { typeNames?: string, … }` | `'change-case-all#pascalCase'` | Naming convention applied to TypeScript **type-name identifiers** (and the type-name part of factory names), mirroring the `typescript` plugin's `namingConvention` for type names. The default matches graphql-codegen's own default, which lowercases acronym runs — schema type `BTFActualsCredentials` becomes `BtfActualsCredentials` (so `mockBtfActualsCredentials`, importing `IBtfActualsCredentials` with `typesPrefix: 'I'`). Set `'keep'` if your codegen config keeps raw names. Accepts `'keep'`, `'change-case-all#<fn>'`, a bare/kebab-case function name (`'pascalCase'`, `'pascal-case'`), **or graphql-codegen's object form** (`{ typeNames, enumValues, … }` — only `typeNames` is used) so a shared block's `namingConvention` can be inherited unchanged. Uses the actual `change-case-all` library, so acronym handling matches codegen exactly. The `__typename` literal always stays the **raw** GraphQL type name. |
 | `typesPrefix` | `string` | `''` | Prefix applied to every generated **type name** reference — imports, return types, `Partial<...>`, enum casts (`typesPrefix: 'I'` → `mockUser(overrides?: Partial<IUser>): IUser`). Applied **after** the `namingConvention` conversion (`prefix + convert(name) + suffix`). Set it to match the sibling `typescript` plugin's `typesPrefix`; the plugin cannot read the other plugin's config automatically. Factory function names are unaffected (`namePrefix`/`nameSuffix` control those). |
 | `typesSuffix` | `string` | `''` | Suffix counterpart of `typesPrefix`, matching the `typescript` plugin's `typesSuffix`. |
 | `enumStyle` | `'union' \| 'ts-enum'` | `'union'` | How enum values are emitted. `'union'` emits a string-literal cast (`'ADMIN' as Role`), which type-checks against string-union enum types (`enumsAsTypes: true`). `'ts-enum'` emits a runtime member reference (`Object.values(Role)[0]`) for consumers whose types file declares **real TS `enum`s** — a string cast fails (TS2352) against those, and the member reference works under any enum member-naming convention. Under `'ts-enum'`, enums are imported with a value import (`import { Role }`), separate from the `import type { ... }` for object/interface types. |
@@ -115,6 +116,56 @@ All options are optional.
 | `terminateCircularRelationships` | `boolean` | `true` | Break reference cycles: circular list fields become `[]`, circular nullable fields become `null`. See [Circular types](#circular-types). |
 | `addTypename` | `boolean` | `true` | Include a `__typename: 'TypeName'` literal on object type mocks. |
 | `includeNullableFields` | `boolean` | `true` | If `true`, nullable fields are populated with mock values (more useful mocks); if `false`, they are set to `null`. |
+| `fragmentSuffix` | `string` | `'Fragment'` | *(operations mode)* Suffix on a fragment's result type name, matching `typescript-operations`. |
+| `omitOperationSuffix` | `boolean` | `false` | *(operations mode)* Omit the operation kind from result type names, matching `typescript-operations`. |
+| `operationResultSuffix` | `string` | `''` | *(operations mode)* Extra suffix after the operation kind on result type names, matching `typescript-operations`. |
+| `baseTypesNamespace` | `string` | `''` | *(operations mode)* Namespace base types/enums are imported under. In `near-operation-file` output that is `Types` (`import * as Types`), so enum members emit as `Types.IEnum`. |
+
+## Operations mode
+
+Schema mode mocks **base schema types** (`mockUser(): User`). But hand-written test factories are usually typed to **operation/fragment `Pick<>` types** (`IUserCardFragment`) — a subset. Operations mode closes that gap: it emits a factory per fragment and operation, typed to the near-operation-file result type, built by walking the **selection set** (not the schema type).
+
+Two properties fall out of walking the selection set:
+
+- **Exact types, no wrappers.** `mockUserCard(): IUserCardFragment` returns exactly the fields the fragment selected — including narrowed unions (pinned to the first `... on X` member).
+- **No infinite recursion.** A selection set is finite, so a fragment over a self-referential schema type terminates — even where schema mode would overflow (see [Circular types](#circular-types)).
+
+Add the plugin to a `near-operation-file` block so each factory lands beside the type it returns (the result type is then in scope — leave `typesFile` unset):
+
+```ts
+'./src': {
+  documents: ['**/*.graphql'],
+  preset: 'near-operation-file',
+  presetConfig: { baseTypesPath: 'types/graphqlTypes.ts', extension: '.ts' },
+  plugins: [
+    'typescript-operations',
+    { 'graphql-codegen-mock-builder': {
+        mode: 'operations',
+        baseTypesNamespace: 'Types', // near-operation-file imports base types as `import * as Types`
+        typesPrefix: 'I',
+        enumStyle: 'ts-enum',
+        scalars: { DateTime: 'faker.date.recent().toISOString()' },
+    } },
+  ],
+}
+```
+
+For a fragment `fragment UserCard on User { id name }` this emits:
+
+```ts
+export function mockUserCard(overrides?: Partial<IUserCardFragment>): IUserCardFragment {
+  return {
+    __typename: 'User',
+    id: faker.string.uuid(),
+    name: faker.person.fullName(),
+    ...overrides,
+  };
+}
+```
+
+Notes:
+- Cross-file fragment spreads resolve only when the spread fragment's definition is among the documents passed to the plugin (near-operation-file includes a file's used fragments).
+- Operations get `mock<Name><Query|Mutation|Subscription>()`; fragments get `mock<Name>()`.
 
 ## Using with graphql-codegen `typescript`-plugin output (typesPrefix + real enums)
 

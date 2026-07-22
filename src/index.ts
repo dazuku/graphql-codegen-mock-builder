@@ -1,15 +1,20 @@
 import type { PluginFunction, PluginValidateFn } from '@graphql-codegen/plugin-helpers';
-import { MockBuilderPluginConfig, resolveConfig } from './config';
+import { MockBuilderPluginConfig, normalizeNamingConvention, resolveConfig } from './config';
 import { generateMockBuilders } from './generate';
+import { generateOperationMockBuilders } from './operations';
 import { resolveNamingConvention } from './naming';
 
-export type { EnumStyle, MockBuilderPluginConfig } from './config';
+export type { EnumStyle, Mode, MockBuilderPluginConfig } from './config';
 export type { FieldHeuristic } from './heuristics';
 export { FIELD_HEURISTICS } from './heuristics';
 export { DEFAULT_CUSTOM_SCALARS } from './generate';
 
-export const plugin: PluginFunction<MockBuilderPluginConfig> = (schema, _documents, config) => {
-  return generateMockBuilders(schema, resolveConfig(config ?? {}));
+export const plugin: PluginFunction<MockBuilderPluginConfig> = (schema, documents, config) => {
+  const resolved = resolveConfig(config ?? {});
+  if (resolved.mode === 'operations') {
+    return generateOperationMockBuilders(schema, documents ?? [], resolved);
+  }
+  return generateMockBuilders(schema, resolved);
 };
 
 export const validate: PluginValidateFn<MockBuilderPluginConfig> = (
@@ -33,11 +38,23 @@ export const validate: PluginValidateFn<MockBuilderPluginConfig> = (
     }
   };
 
+  if (cfg.mode !== undefined && cfg.mode !== 'schema' && cfg.mode !== 'operations') {
+    errors.push(`\`mode\` must be 'schema' or 'operations', got ${JSON.stringify(cfg.mode)}`);
+  }
+  expectString('fragmentSuffix');
+  expectString('operationResultSuffix');
+  expectString('baseTypesNamespace');
+  expectBoolean('omitOperationSuffix');
+
   expectString('typesFile');
-  expectString('namingConvention');
-  if (typeof cfg.namingConvention === 'string') {
+  // `namingConvention` may be a string or graphql-codegen's object form
+  // (`{ typeNames, enumValues, … }`); normalize, then validate the resolved string.
+  const nc = cfg.namingConvention;
+  if (nc !== undefined && typeof nc !== 'string' && (typeof nc !== 'object' || nc === null)) {
+    errors.push(`\`namingConvention\` must be a string or object, got ${typeof nc}`);
+  } else {
     try {
-      resolveNamingConvention(cfg.namingConvention);
+      resolveNamingConvention(normalizeNamingConvention(nc));
     } catch (error) {
       errors.push((error as Error).message);
     }

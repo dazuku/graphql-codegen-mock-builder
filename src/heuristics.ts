@@ -25,7 +25,7 @@ export interface FieldHeuristic {
 
 export const FIELD_HEURISTICS: FieldHeuristic[] = [
   { name: 'id', match: /^(id|uuid|guid)$/i, string: 'faker.string.uuid()' },
-  { name: 'email', match: /email$/i, string: 'faker.internet.email()' },
+  { name: 'email', match: /e-?mail/i, string: 'faker.internet.email()' },
   { name: 'firstName', match: /^first_?name$/i, string: 'faker.person.firstName()' },
   { name: 'lastName', match: /^last_?name$/i, string: 'faker.person.lastName()' },
   { name: 'fullName', match: /^(name|full_?name)$/i, string: 'faker.person.fullName()' },
