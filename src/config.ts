@@ -51,7 +51,7 @@ export interface MockBuilderPluginConfig {
    * type-name part of factory names), mirroring the `typescript` plugin's
    * `namingConvention` for type names. Default:
    * `'change-case-all#pascalCase'` — graphql-codegen's own default — which
-   * lowercases acronym runs (`BTFActualsCredentials` → `BtfActualsCredentials`).
+   * lowercases acronym runs (`APICatalogCredentials` → `ApiCatalogCredentials`).
    * Accepts `'keep'`, `'change-case-all#<fn>'`, or a bare/kebab-case function
    * name (`'pascalCase'`, `'pascal-case'`). The `__typename` literal always
    * stays the raw GraphQL type name. `typesPrefix`/`typesSuffix` are applied

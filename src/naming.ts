@@ -10,7 +10,7 @@ const MODULE_NAME = 'change-case-all';
  * kebab-case aliases (`'pascal-case'` → `pascalCase`) — mirroring what the
  * `typescript` plugin accepts for type names. Uses the actual `change-case-all`
  * library so acronym handling matches graphql-codegen byte-for-byte
- * (`BTFActualsCredentials` → `BtfActualsCredentials`).
+ * (`APICatalogCredentials` → `ApiCatalogCredentials`).
  */
 export function resolveNamingConvention(convention: string): NamingFn {
   if (convention === 'keep') return (name) => name;

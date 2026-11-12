@@ -28,13 +28,13 @@ const SDL = /* GraphQL */ `
     owner: User!
   }
 
-  type Rfp {
+  type Project {
     id: ID!
     displayId: Int!
     name: String!
   }
 
-  union Target = Rfp | Org
+  union Target = Project | Org
 
   type Notification {
     id: ID!
@@ -66,7 +66,7 @@ const DOC = /* GraphQL */ `
       ...ActorParts
     }
     target {
-      ... on Rfp {
+      ... on Project {
         id
         displayId
         name
@@ -176,7 +176,7 @@ describe('operations mode — runtime behavior', () => {
 
   it('pins a union field to the first inline-fragment member', () => {
     const n = mockNotificationParts();
-    expect(n.target.__typename).toBe('Rfp');
+    expect(n.target.__typename).toBe('Project');
     expect(typeof n.target.id).toBe('string');
     expect(typeof n.target.displayId).toBe('number');
     expect(typeof n.target.name).toBe('string');
@@ -188,7 +188,7 @@ describe('operations mode — runtime behavior', () => {
     expect(Array.isArray(q.notifications)).toBe(true);
     expect(q.notifications).toHaveLength(2);
     expect(q.notifications[0].__typename).toBe('Notification');
-    expect(q.notifications[0].target.__typename).toBe('Rfp');
+    expect(q.notifications[0].target.__typename).toBe('Project');
   });
 
   it('overrides win over generated values', () => {

@@ -104,7 +104,7 @@ All options are optional.
 | --- | --- | --- | --- |
 | `typesFile` | `string` | — | Import path for the generated TS types (e.g. `'./types'`). When set, emits `import type { ... } from '<typesFile>'`. When unset, types must be in scope (co-generate the `typescript` plugin into the same file). |
 | `mode` | `'schema' \| 'operations'` | `'schema'` | `'schema'` emits a factory per schema type. `'operations'` emits a factory per **fragment and operation** in the documents, typed to the near-operation-file result types and built by walking the selection set. See [Operations mode](#operations-mode). |
-| `namingConvention` | `string \| { typeNames?: string, … }` | `'change-case-all#pascalCase'` | Naming convention applied to TypeScript **type-name identifiers** (and the type-name part of factory names), mirroring the `typescript` plugin's `namingConvention` for type names. The default matches graphql-codegen's own default, which lowercases acronym runs — schema type `BTFActualsCredentials` becomes `BtfActualsCredentials` (so `mockBtfActualsCredentials`, importing `IBtfActualsCredentials` with `typesPrefix: 'I'`). Set `'keep'` if your codegen config keeps raw names. Accepts `'keep'`, `'change-case-all#<fn>'`, a bare/kebab-case function name (`'pascalCase'`, `'pascal-case'`), **or graphql-codegen's object form** (`{ typeNames, enumValues, … }` — only `typeNames` is used) so a shared block's `namingConvention` can be inherited unchanged. Uses the actual `change-case-all` library, so acronym handling matches codegen exactly. The `__typename` literal always stays the **raw** GraphQL type name. |
+| `namingConvention` | `string \| { typeNames?: string, … }` | `'change-case-all#pascalCase'` | Naming convention applied to TypeScript **type-name identifiers** (and the type-name part of factory names), mirroring the `typescript` plugin's `namingConvention` for type names. The default matches graphql-codegen's own default, which lowercases acronym runs — schema type `APICatalogCredentials` becomes `ApiCatalogCredentials` (so `mockApiCatalogCredentials`, importing `IApiCatalogCredentials` with `typesPrefix: 'I'`). Set `'keep'` if your codegen config keeps raw names. Accepts `'keep'`, `'change-case-all#<fn>'`, a bare/kebab-case function name (`'pascalCase'`, `'pascal-case'`), **or graphql-codegen's object form** (`{ typeNames, enumValues, … }` — only `typeNames` is used) so a shared block's `namingConvention` can be inherited unchanged. Uses the actual `change-case-all` library, so acronym handling matches codegen exactly. The `__typename` literal always stays the **raw** GraphQL type name. |
 | `typesPrefix` | `string` | `''` | Prefix applied to every generated **type name** reference — imports, return types, `Partial<...>`, enum casts (`typesPrefix: 'I'` → `mockUser(overrides?: Partial<IUser>): IUser`). Applied **after** the `namingConvention` conversion (`prefix + convert(name) + suffix`). Set it to match the sibling `typescript` plugin's `typesPrefix`; the plugin cannot read the other plugin's config automatically. Factory function names are unaffected (`namePrefix`/`nameSuffix` control those). |
 | `typesSuffix` | `string` | `''` | Suffix counterpart of `typesPrefix`, matching the `typescript` plugin's `typesSuffix`. |
 | `enumStyle` | `'union' \| 'ts-enum'` | `'union'` | How enum values are emitted. `'union'` emits a string-literal cast (`'ADMIN' as Role`), which type-checks against string-union enum types (`enumsAsTypes: true`). `'ts-enum'` emits a runtime member reference (`Object.values(Role)[0]`) for consumers whose types file declares **real TS `enum`s** — a string cast fails (TS2352) against those, and the member reference works under any enum member-naming convention. Under `'ts-enum'`, enums are imported with a value import (`import { Role }`), separate from the `import type { ... }` for object/interface types. |
@@ -199,12 +199,12 @@ generates:
 This produces factories like:
 
 ```ts
-import type { IShipment, IStop } from './types';
+import type { IBook, IChapter } from './types';
 import { IStatus } from './types';
 
-export function mockShipment(overrides?: Partial<IShipment>): IShipment {
+export function mockBook(overrides?: Partial<IBook>): IBook {
   return {
-    __typename: 'Shipment', // raw GraphQL type name — matches the `__typename?: 'Shipment'` literal
+    __typename: 'Book', // raw GraphQL type name — matches the `__typename?: 'Book'` literal
     createdAt: faker.date.recent().toISOString(),
     id: faker.string.uuid(),
     status: Object.values(IStatus)[0] as IStatus,
@@ -216,7 +216,7 @@ export function mockShipment(overrides?: Partial<IShipment>): IShipment {
 Notes:
 
 - `typesPrefix`/`typesSuffix` only affect **type name** references; factory names stay `mock<ConvertedTypeName>`.
-- Type-name identifiers follow `namingConvention` (default `change-case-all#pascalCase`, matching codegen's default): schema type `BTFActualsCredentials` yields `mockBtfActualsCredentials(overrides?: Partial<IBtfActualsCredentials>)` while `__typename` stays `'BTFActualsCredentials'`.
+- Type-name identifiers follow `namingConvention` (default `change-case-all#pascalCase`, matching codegen's default): schema type `APICatalogCredentials` yields `mockApiCatalogCredentials(overrides?: Partial<IApiCatalogCredentials>)` while `__typename` stays `'APICatalogCredentials'`.
 - `__typename` keeps the raw GraphQL type name, matching the optional `__typename?: 'Foo'` literal the `typescript` plugin emits.
 - Nullable-field values are assignable to `Maybe<T>` in both flavors (`T | null` and `T | null | undefined`).
 - Under `enumStyle: 'ts-enum'`, `enumsAsRandom: true` emits `faker.helpers.arrayElement(Object.values(Role))`.
