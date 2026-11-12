@@ -410,22 +410,22 @@ describe('consumer-style output (typesPrefix + ts-enum + preResolveTypes:false)'
       pending
     }
 
-    type Shipment {
+    type Book {
       id: ID!
       status: Status!
       createdAt: ISO8601DateTime!
       reference: String
-      stops: [Stop!]!
-      parent: Shipment
+      chapters: [Chapter!]!
+      parent: Book
     }
 
-    type Stop {
-      city: String!
-      shipment: Shipment!
+    type Chapter {
+      title: String!
+      book: Book!
     }
 
     type Query {
-      shipment: Shipment
+      book: Book
     }
   `;
 
@@ -455,49 +455,49 @@ export enum IStatus {
   pending = 'pending',
 }
 
-export type IShipment = {
-  __typename?: 'Shipment';
+export type IBook = {
+  __typename?: 'Book';
+  chapters: Array<IChapter>;
   createdAt: string;
   id: string;
-  parent?: Maybe<IShipment>;
+  parent?: Maybe<IBook>;
   reference?: Maybe<string>;
   status: IStatus;
-  stops: Array<IStop>;
 };
 
-export type IStop = {
-  __typename?: 'Stop';
-  city: string;
-  shipment: IShipment;
+export type IChapter = {
+  __typename?: 'Chapter';
+  book: IBook;
+  title: string;
 };
 
 export type IQuery = {
   __typename?: 'Query';
-  shipment?: Maybe<IShipment>;
+  book?: Maybe<IBook>;
 };
 `;
 
   it('prefixes type references but not factory names', () => {
     const output = generateConsumer();
     expect(output).toContain(
-      'export function mockShipment(overrides?: Partial<IShipment>): IShipment'
+      'export function mockBook(overrides?: Partial<IBook>): IBook'
     );
-    expect(output).toContain('export function mockStop(overrides?: Partial<IStop>): IStop');
-    expect(output).toContain('shipment: mockShipment(),');
-    expect(output).not.toContain('mockIShipment');
+    expect(output).toContain('export function mockChapter(overrides?: Partial<IChapter>): IChapter');
+    expect(output).toContain('book: mockBook(),');
+    expect(output).not.toContain('mockIBook');
   });
 
   it('applies typesSuffix too', () => {
     const output = generateConsumer({ typesPrefix: 'I', typesSuffix: 'Type' });
     expect(output).toContain(
-      'export function mockShipment(overrides?: Partial<IShipmentType>): IShipmentType'
+      'export function mockBook(overrides?: Partial<IBookType>): IBookType'
     );
   });
 
   it('splits imports: type-only for types, value import for ts-enum enums', () => {
     const output = generateConsumer();
     expect(output).toContain(
-      "import type { IQuery, IShipment, IStop } from './consumer-types';"
+      "import type { IBook, IChapter, IQuery } from './consumer-types';"
     );
     expect(output).toContain("import { IStatus } from './consumer-types';");
   });
@@ -505,7 +505,7 @@ export type IQuery = {
   it('keeps enums in the type-only import under union style', () => {
     const output = generateConsumer({ ...CONSUMER_CONFIG, enumStyle: 'union' });
     expect(output).toContain(
-      "import type { IQuery, IShipment, IStatus, IStop } from './consumer-types';"
+      "import type { IBook, IChapter, IQuery, IStatus } from './consumer-types';"
     );
     expect(output).not.toContain("import { IStatus }");
     expect(output).toContain('status: "active" as IStatus,');
@@ -522,16 +522,16 @@ export type IQuery = {
 
   it('keeps __typename as the raw GraphQL type name and handles the custom scalar', () => {
     const output = generateConsumer();
-    expect(output).toContain("__typename: 'Shipment',");
-    expect(output).not.toContain("__typename: 'IShipment'");
+    expect(output).toContain("__typename: 'Book',");
+    expect(output).not.toContain("__typename: 'IBook'");
     expect(output).toContain('createdAt: faker.date.recent().toISOString(),');
   });
 
-  it('terminates the circular Shipment ↔ Stop / parent relationships', () => {
+  it('terminates the circular Book ↔ Chapter / parent relationships', () => {
     const output = generateConsumer();
     expect(output).toContain('parent: null,');
-    expect(output).toContain('stops: [],');
-    expect(output).toContain('shipment: mockShipment(),');
+    expect(output).toContain('chapters: [],');
+    expect(output).toContain('book: mockBook(),');
   });
 
   it('type-checks with ZERO diagnostics against real-enum consumer types', () => {
@@ -544,51 +544,51 @@ export type IQuery = {
 
   it('resolves ts-enum references to a valid enum value at runtime, and overrides win', () => {
     const IStatus = { active: 'active', inactive: 'inactive', pending: 'pending' };
-    const { mockShipment, mockStop } = executeGenerated(generateConsumer(), {
+    const { mockBook, mockChapter } = executeGenerated(generateConsumer(), {
       './consumer-types': { IStatus },
     });
-    const shipment = mockShipment();
-    expect(shipment.status).toBe('active');
-    expect(Object.values(IStatus)).toContain(shipment.status);
-    expect(shipment.__typename).toBe('Shipment');
-    expect(shipment.parent).toBeNull();
-    expect(shipment.stops).toEqual([]);
-    expect(typeof shipment.createdAt).toBe('string');
-    expect(Number.isNaN(Date.parse(shipment.createdAt))).toBe(false);
+    const book = mockBook();
+    expect(book.status).toBe('active');
+    expect(Object.values(IStatus)).toContain(book.status);
+    expect(book.__typename).toBe('Book');
+    expect(book.parent).toBeNull();
+    expect(book.chapters).toEqual([]);
+    expect(typeof book.createdAt).toBe('string');
+    expect(Number.isNaN(Date.parse(book.createdAt))).toBe(false);
 
-    const overridden = mockShipment({ status: IStatus.pending, reference: 'REF-1' });
+    const overridden = mockBook({ status: IStatus.pending, reference: 'REF-1' });
     expect(overridden.status).toBe('pending');
     expect(overridden.reference).toBe('REF-1');
 
-    expect(mockStop().shipment.__typename).toBe('Shipment');
+    expect(mockChapter().book.__typename).toBe('Book');
   });
 });
 
 describe('type-name naming convention + @oneOf inputs', () => {
   const NAMING_SDL = /* GraphQL */ `
-    enum DataImportEntityStatusRMSBulkUploadLanes {
+    enum CatalogImportStatusCSVBulkImport {
       pending
       complete
     }
 
-    type BTFActualsCredentials {
+    type APICatalogCredentials {
       id: ID!
       username: String!
     }
 
-    input DataImportEntityParamsRFPLanesInput {
+    input CatalogImportParamsCSVRowsInput {
       fileName: String!
     }
 
-    input ConnectBTFActualsCredentialsInput {
-      params: DataImportEntityParamsRFPLanesInput
+    input ConnectAPICatalogCredentialsInput {
+      params: CatalogImportParamsCSVRowsInput
       username: String!
     }
 
-    type RMSBulkUpload {
+    type CSVBulkImport {
       id: ID!
-      status: DataImportEntityStatusRMSBulkUploadLanes!
-      credentials: BTFActualsCredentials
+      status: CatalogImportStatusCSVBulkImport!
+      credentials: APICatalogCredentials
     }
 
     input AInput {
@@ -605,7 +605,7 @@ describe('type-name naming convention + @oneOf inputs', () => {
     }
 
     type Query {
-      upload: RMSBulkUpload
+      bulkImport: CSVBulkImport
     }
   `;
 
@@ -618,43 +618,43 @@ describe('type-name naming convention + @oneOf inputs', () => {
   it('pascalCases acronym type names by default (imports, signatures, nested refs, factory names)', () => {
     const output = generateNaming({ typesFile: './naming-types', typesPrefix: 'I' });
     expect(output).toContain(
-      "import type { IAInput, IBInput, IBtfActualsCredentials, IConnectBtfActualsCredentialsInput, IDataImportEntityParamsRfpLanesInput, IDataImportEntityStatusRmsBulkUploadLanes, IFilterInput, IQuery, IRmsBulkUpload } from './naming-types';"
+      "import type { IAInput, IApiCatalogCredentials, IBInput, ICatalogImportParamsCsvRowsInput, ICatalogImportStatusCsvBulkImport, IConnectApiCatalogCredentialsInput, ICsvBulkImport, IFilterInput, IQuery } from './naming-types';"
     );
     expect(output).toContain(
-      'export function mockBtfActualsCredentials(overrides?: Partial<IBtfActualsCredentials>): IBtfActualsCredentials'
+      'export function mockApiCatalogCredentials(overrides?: Partial<IApiCatalogCredentials>): IApiCatalogCredentials'
     );
     expect(output).toContain(
-      'export function mockConnectBtfActualsCredentialsInput(overrides?: Partial<IConnectBtfActualsCredentialsInput>): IConnectBtfActualsCredentialsInput'
+      'export function mockConnectApiCatalogCredentialsInput(overrides?: Partial<IConnectApiCatalogCredentialsInput>): IConnectApiCatalogCredentialsInput'
     );
-    expect(output).toContain('credentials: mockBtfActualsCredentials(),');
-    expect(output).toContain('params: mockDataImportEntityParamsRfpLanesInput(),');
+    expect(output).toContain('credentials: mockApiCatalogCredentials(),');
+    expect(output).toContain('params: mockCatalogImportParamsCsvRowsInput(),');
     expect(output).toContain(
-      'status: "pending" as IDataImportEntityStatusRmsBulkUploadLanes,'
+      'status: "pending" as ICatalogImportStatusCsvBulkImport,'
     );
     // Raw acronym forms must not leak into TS identifiers.
-    expect(output).not.toContain('IBTFActualsCredentials');
-    expect(output).not.toContain('mockBTFActualsCredentials');
-    expect(output).not.toContain('RFPLanes');
+    expect(output).not.toContain('IAPICatalogCredentials');
+    expect(output).not.toContain('mockAPICatalogCredentials');
+    expect(output).not.toContain('CSVRows');
   });
 
   it('keeps __typename as the RAW GraphQL type name', () => {
     const output = generateNaming({ typesPrefix: 'I' });
-    expect(output).toContain("__typename: 'BTFActualsCredentials',");
-    expect(output).toContain("__typename: 'RMSBulkUpload',");
-    expect(output).not.toContain("__typename: 'BtfActualsCredentials'");
+    expect(output).toContain("__typename: 'APICatalogCredentials',");
+    expect(output).toContain("__typename: 'CSVBulkImport',");
+    expect(output).not.toContain("__typename: 'ApiCatalogCredentials'");
   });
 
   it("namingConvention: 'keep' preserves raw names", () => {
     const output = generateNaming({ typesPrefix: 'I', namingConvention: 'keep' });
     expect(output).toContain(
-      'export function mockBTFActualsCredentials(overrides?: Partial<IBTFActualsCredentials>): IBTFActualsCredentials'
+      'export function mockAPICatalogCredentials(overrides?: Partial<IAPICatalogCredentials>): IAPICatalogCredentials'
     );
   });
 
   it('accepts pascalCase aliases', () => {
     for (const namingConvention of ['pascal-case', 'pascalCase', 'change-case-all#pascalCase']) {
       const output = generateNaming({ namingConvention });
-      expect(output).toContain('export function mockBtfActualsCredentials');
+      expect(output).toContain('export function mockApiCatalogCredentials');
     }
   });
 
@@ -678,28 +678,28 @@ describe('type-name naming convention + @oneOf inputs', () => {
   const NAMING_TYPES = `
 export type Maybe<T> = T | null;
 
-export type IDataImportEntityStatusRmsBulkUploadLanes = 'pending' | 'complete';
+export type ICatalogImportStatusCsvBulkImport = 'pending' | 'complete';
 
-export type IBtfActualsCredentials = {
-  __typename?: 'BTFActualsCredentials';
+export type IApiCatalogCredentials = {
+  __typename?: 'APICatalogCredentials';
   id: string;
   username: string;
 };
 
-export type IDataImportEntityParamsRfpLanesInput = {
+export type ICatalogImportParamsCsvRowsInput = {
   fileName: string;
 };
 
-export type IConnectBtfActualsCredentialsInput = {
-  params?: Maybe<IDataImportEntityParamsRfpLanesInput>;
+export type IConnectApiCatalogCredentialsInput = {
+  params?: Maybe<ICatalogImportParamsCsvRowsInput>;
   username: string;
 };
 
-export type IRmsBulkUpload = {
-  __typename?: 'RMSBulkUpload';
-  credentials?: Maybe<IBtfActualsCredentials>;
+export type ICsvBulkImport = {
+  __typename?: 'CSVBulkImport';
+  credentials?: Maybe<IApiCatalogCredentials>;
   id: string;
-  status: IDataImportEntityStatusRmsBulkUploadLanes;
+  status: ICatalogImportStatusCsvBulkImport;
 };
 
 export type IAInput = { value: string };
@@ -711,7 +711,7 @@ export type IFilterInput =
 
 export type IQuery = {
   __typename?: 'Query';
-  upload?: Maybe<IRmsBulkUpload>;
+  bulkImport?: Maybe<ICsvBulkImport>;
 };
 `;
 
