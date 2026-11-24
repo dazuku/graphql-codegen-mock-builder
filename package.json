@@ -48,7 +48,7 @@
     "graphql": "^16.0.0 || ^17.0.0"
   },
   "devDependencies": {
-    "@faker-js/faker": "9.9.0",
+    "@faker-js/faker": "10.5.0",
     "@graphql-codegen/plugin-helpers": "7.1.0",
     "graphql": "16.14.2",
     "typescript": "5.9.3",
