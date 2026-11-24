@@ -237,3 +237,22 @@ describe('operations mode — cross-file fragments and field merging', () => {
     expect(output).toContain('emailAddress: faker.internet.email()');
   });
 });
+
+describe('operations mode — names containing underscores (#8)', () => {
+  const s = buildSchema(/* GraphQL */ `
+    enum user_status { active_now on_hold }
+    type audit_log { id: ID! status: user_status! }
+    type Query { logs: [audit_log!]! }
+  `);
+  const doc = parse(/* GraphQL */ `
+    fragment log_fields on audit_log { id status }
+    query get_logs { logs { ...log_fields } }
+  `);
+
+  it('keeps underscores in fragment, operation and enum type names like typescript-operations', () => {
+    const output = plugin(s, [{ document: doc }], { mode: 'operations', typesFile: './types' }) as string;
+    expect(output).toContain('Partial<Log_FieldsFragment>): Log_FieldsFragment');
+    expect(output).toContain('Partial<Get_LogsQuery>): Get_LogsQuery');
+    expect(output).toContain('as User_Status');
+  });
+});

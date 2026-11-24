@@ -723,3 +723,88 @@ export type IQuery = {
     expect(messages).toEqual([]);
   });
 });
+
+// Issue #8: graphql-codegen converts each `_`-separated part of a type name and
+// keeps the underscores (`audit_log` → `Audit_Log`) unless the object-form
+// convention drops them. Expected names below were taken from the real
+// `@graphql-codegen/typescript` plugin under each config.
+describe('type names containing underscores (#8)', () => {
+  const UNDERSCORE_SDL = /* GraphQL */ `
+    enum user_status {
+      active_now
+      on_hold
+    }
+
+    type audit_log {
+      id: ID!
+      status: user_status!
+    }
+
+    input log_filter_input {
+      status: user_status
+    }
+
+    type Query {
+      logs(filter: log_filter_input): [audit_log!]!
+    }
+  `;
+  const underscoreSchema = buildSchema(UNDERSCORE_SDL);
+  const generateUnderscore = (config: Record<string, unknown> = {}) =>
+    plugin(underscoreSchema, [], { typesFile: './types', ...config }) as string;
+
+  const KEEP_UNDERSCORES = 'import type { Audit_Log, Log_Filter_Input, Query, User_Status }';
+  const DROP_UNDERSCORES = 'import type { AuditLog, LogFilterInput, Query, UserStatus }';
+
+  it.each([
+    ['unset (codegen default)', {}, KEEP_UNDERSCORES],
+    ["'change-case-all#pascalCase'", { namingConvention: 'change-case-all#pascalCase' }, KEEP_UNDERSCORES],
+    ["'pascal-case'", { namingConvention: 'pascal-case' }, KEEP_UNDERSCORES],
+    ["'keep'", { namingConvention: 'keep' }, 'import type { Query, audit_log, log_filter_input, user_status }'],
+    ['{ typeNames }', { namingConvention: { typeNames: 'change-case-all#pascalCase' } }, DROP_UNDERSCORES],
+    [
+      '{ typeNames, transformUnderscore: false } (codegen ignores the flag here)',
+      { namingConvention: { typeNames: 'change-case-all#pascalCase', transformUnderscore: false } },
+      DROP_UNDERSCORES,
+    ],
+    ["{ typeNames: 'keep' }", { namingConvention: { typeNames: 'keep' } }, 'import type { Query, audit_log, log_filter_input, user_status }'],
+    ['{ transformUnderscore: true }', { namingConvention: { transformUnderscore: true } }, DROP_UNDERSCORES],
+    ['{ enumValues } only', { namingConvention: { enumValues: 'keep' } }, KEEP_UNDERSCORES],
+  ])('namingConvention %s', (_label, config, expectedImport) => {
+    expect(generateUnderscore(config)).toContain(expectedImport);
+  });
+
+  it('uses the converted name in signatures, nested factories and enum casts; __typename stays raw', () => {
+    const output = generateUnderscore();
+    expect(output).toContain(
+      'export function mockAudit_Log(overrides?: Partial<Audit_Log>): Audit_Log'
+    );
+    expect(output).toContain('status: "active_now" as User_Status,');
+    expect(output).toContain('logs: Array.from({ length: 2 }, () => mockAudit_Log()),');
+    expect(output).toContain("__typename: 'audit_log',");
+  });
+
+  it('applies typesPrefix/typesSuffix around the converted name', () => {
+    expect(generateUnderscore({ typesPrefix: 'I', typesSuffix: 'T' })).toContain(
+      'import type { IAudit_LogT, ILog_Filter_InputT, IQueryT, IUser_StatusT }'
+    );
+  });
+
+  // The exact repro from the issue: types as emitted by @graphql-codegen/typescript.
+  it('type-checks against the typescript plugin output with ZERO diagnostics', () => {
+    const types = `
+export type Maybe<T> = T | null;
+export type InputMaybe<T> = Maybe<T>;
+export type Query = { __typename?: 'Query'; logs: Array<Audit_Log> };
+export type Audit_Log = { __typename?: 'audit_log'; id: string; status: User_Status };
+export type Log_Filter_Input = { status?: InputMaybe<User_Status> };
+export enum User_Status {
+  ActiveNow = 'active_now',
+  OnHold = 'on_hold'
+}
+`;
+    for (const enumStyle of ['union', 'ts-enum']) {
+      const mocks = generateUnderscore({ enumStyle });
+      expect(typeCheck({ 'types.ts': types, 'mocks.ts': mocks })).toEqual([]);
+    }
+  });
+});
