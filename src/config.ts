@@ -1,3 +1,5 @@
+import type { NamingConventionSpec } from './naming';
+
 /**
  * How enum values are emitted.
  * - `'union'`: string literal cast (`'VALUE' as Status`) — for string-union enum types.
@@ -6,11 +8,13 @@
 export type EnumStyle = 'union' | 'ts-enum';
 
 /**
- * graphql-codegen's object form of `namingConvention`. Only `typeNames` is
- * meaningful to this plugin; other keys are accepted and ignored.
+ * graphql-codegen's object form of `namingConvention`. Only `typeNames` and
+ * `transformUnderscore` are meaningful to this plugin; other keys are accepted
+ * and ignored.
  */
 export interface NamingConventionObject {
   typeNames?: string;
+  transformUnderscore?: boolean;
   [key: string]: unknown;
 }
 
@@ -57,10 +61,15 @@ export interface MockBuilderPluginConfig {
    * stays the raw GraphQL type name. `typesPrefix`/`typesSuffix` are applied
    * AFTER conversion.
    *
+   * Underscores are handled like codegen: each `_`-separated part is
+   * converted and the underscores kept (`audit_log` → `Audit_Log`).
+   *
    * Also accepts graphql-codegen's object form (`{ typeNames, enumValues, … }`)
    * so the plugin can inherit a shared block's `namingConvention` unchanged —
-   * only `typeNames` is used (type names are all this plugin converts; enum
-   * values are referenced structurally, not by name).
+   * only `typeNames` and `transformUnderscore` are used (type names are all
+   * this plugin converts; enum values are referenced structurally, not by
+   * name). As in codegen, the object form drops underscores (`AuditLog`) when
+   * it sets `typeNames` or `transformUnderscore: true`.
    */
   namingConvention?: string | NamingConventionObject;
 
@@ -157,29 +166,43 @@ export interface MockBuilderPluginConfig {
 export interface ResolvedConfig
   extends Required<Omit<MockBuilderPluginConfig, 'typesFile' | 'namingConvention'>> {
   typesFile?: string;
-  /** Always normalized to a string (see {@link normalizeNamingConvention}). */
-  namingConvention: string;
+  /** Always normalized (see {@link normalizeNamingConvention}). */
+  namingConvention: NamingConventionSpec;
 }
 
+const DEFAULT_NAMING_CONVENTION = 'change-case-all#pascalCase';
+
 /**
- * Reduce a `namingConvention` (string, object, or unset) to the string form the
- * type-name converter expects. The object form's `typeNames` wins; anything
- * else falls back to the default.
+ * Reduce a `namingConvention` (string, object, or unset) to the case function
+ * and underscore handling graphql-codegen's `convertFactory` would use for
+ * type names:
+ * - string or unset: convert each `_`-separated part, keep the underscores
+ *   (`audit_log` → `Audit_Log`).
+ * - object with `typeNames`: underscores are dropped (`AuditLog`); codegen
+ *   ignores a `transformUnderscore` key in this case.
+ * - object without `typeNames`: pascalCase, dropping underscores only when
+ *   `transformUnderscore` is set.
  */
 export function normalizeNamingConvention(
   value: string | NamingConventionObject | undefined
-): string {
-  if (typeof value === 'string') return value;
-  if (value && typeof value === 'object' && typeof value.typeNames === 'string') {
-    return value.typeNames;
+): NamingConventionSpec {
+  if (typeof value === 'string') return { convention: value, transformUnderscore: false };
+  if (value && typeof value === 'object') {
+    if (typeof value.typeNames === 'string') {
+      return { convention: value.typeNames, transformUnderscore: true };
+    }
+    return {
+      convention: DEFAULT_NAMING_CONVENTION,
+      transformUnderscore: Boolean(value.transformUnderscore),
+    };
   }
-  return DEFAULT_CONFIG.namingConvention;
+  return { convention: DEFAULT_NAMING_CONVENTION, transformUnderscore: false };
 }
 
 export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'typesFile'> = {
   mode: 'schema',
   scalars: {},
-  namingConvention: 'change-case-all#pascalCase',
+  namingConvention: { convention: DEFAULT_NAMING_CONVENTION, transformUnderscore: false },
   typesPrefix: '',
   typesSuffix: '',
   enumStyle: 'union',
